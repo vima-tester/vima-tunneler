@@ -25,7 +25,7 @@ localhost:PORT (your local API)
 
 ## Requirements
 
-- Node.js >= 18
+- Node.js >= 20
 
 ## Build & install
 
