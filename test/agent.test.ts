@@ -1,10 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
+import https from "node:https";
 import { AddressInfo } from "node:net";
 import { WebSocketServer, WebSocket } from "ws";
 import { AgentConfig } from "../src/config";
-import { runAgent } from "../src/agent";
+import { runAgent, toWebSocketUrl } from "../src/agent";
+import { selfSignedCert, selfSignedKey } from "./fixtures/selfSigned";
 
 const CFG: AgentConfig = {
   agentId: "agent-1",
@@ -19,7 +21,7 @@ function listen(wss: WebSocketServer): Promise<number> {
   });
 }
 
-function listenHttp(server: http.Server): Promise<number> {
+function listenHttp(server: import("node:net").Server): Promise<number> {
   return new Promise((resolve) => {
     server.listen(0, "127.0.0.1", () =>
       resolve((server.address() as AddressInfo).port)
@@ -409,4 +411,156 @@ test("gracefulStop flushes pending outbox over a fresh connection", async () => 
 
   closeRelay(wss);
   target.close();
+});
+
+test("threads insecureTLS from the request frame to a self-signed https target", async () => {
+  const results = new Map<string, { type: string; status?: number; message?: string }>();
+
+  const target = https.createServer(
+    { key: selfSignedKey, cert: selfSignedCert },
+    (_req, res) => {
+      res.writeHead(200, { "content-type": "text/plain" });
+      res.end("secure-ok");
+    }
+  );
+  const tport = await listenHttp(target);
+
+  const wss = new WebSocketServer({ port: 0 });
+  let sendToAgent: ((payload: object) => void) | null = null;
+  wss.on("connection", (ws) => {
+    sendToAgent = (p) => ws.send(JSON.stringify(p));
+    ws.on("message", (raw) => {
+      const msg = JSON.parse(raw.toString());
+      if (msg.type === "response" || msg.type === "error") {
+        results.set(msg.jobId, msg);
+      }
+    });
+  });
+  const port = await listen(wss);
+
+  const handle = runAgent(cfgFor(port));
+  try {
+    await waitFor(() => sendToAgent !== null, "agent connection");
+
+    sendToAgent!({
+      type: "request",
+      jobId: "tls-default",
+      method: "GET",
+      url: `https://127.0.0.1:${tport}/`,
+    });
+    sendToAgent!({
+      type: "request",
+      jobId: "tls-insecure",
+      method: "GET",
+      url: `https://127.0.0.1:${tport}/`,
+      insecureTLS: true,
+    });
+
+    await waitFor(() => results.size === 2, "both jobs settled");
+
+    const strict = results.get("tls-default")!;
+    assert.equal(strict.type, "error");
+    assert.match(strict.message ?? "", /certificate|self[- ]signed|unable to verify/i);
+
+    const lenient = results.get("tls-insecure")!;
+    assert.equal(lenient.type, "response");
+    assert.equal(lenient.status, 200);
+  } finally {
+    stop(handle);
+    closeRelay(wss);
+    target.close();
+  }
+});
+
+test("maps http/https server URLs to ws/wss", () => {
+  assert.equal(toWebSocketUrl("https://relay.example.com"), "wss://relay.example.com");
+  assert.equal(toWebSocketUrl("http://relay.example.com:8080"), "ws://relay.example.com:8080");
+  assert.equal(toWebSocketUrl("HTTPS://relay.example.com"), "wss://relay.example.com");
+  assert.equal(toWebSocketUrl("ws://relay.example.com"), "ws://relay.example.com");
+});
+
+test("stops retrying when the relay rejects the token at upgrade", async () => {
+  let attempts = 0;
+  const server = http.createServer();
+  server.on("upgrade", (_req, socket) => {
+    attempts += 1;
+    socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+    socket.destroy();
+  });
+  const port = await new Promise<number>((resolve) =>
+    server.listen(0, "127.0.0.1", () => resolve((server.address() as AddressInfo).port))
+  );
+
+  let fatal: Error | null = null;
+  const handle = runAgent(cfgFor(port), {
+    backoffBaseMs: 20,
+    backoffCapMs: 40,
+    onFatalError: (err) => {
+      fatal = err;
+    },
+  });
+
+  try {
+    await waitFor(() => fatal !== null, "fatal auth error");
+    await new Promise((r) => setTimeout(r, 200));
+    assert.equal(attempts, 1, "must not reconnect after an auth rejection");
+    assert.match(fatal!.message, /token/i);
+    assert.match(fatal!.message, /401/);
+  } finally {
+    stop(handle);
+    server.close();
+  }
+});
+
+test("ignores malformed, unknown-type and jobId-less frames", async () => {
+  const results: { jobId?: string; type?: string }[] = [];
+  const target = http.createServer((_req, res) => {
+    res.writeHead(200);
+    res.end("ok");
+  });
+  const tport = await listenHttp(target);
+
+  const wss = new WebSocketServer({ port: 0 });
+  let send: ((raw: string) => void) | null = null;
+  wss.on("connection", (ws) => {
+    send = (raw) => ws.send(raw);
+    ws.on("message", (raw) => {
+      const msg = JSON.parse(raw.toString());
+      if (msg.type === "response" || msg.type === "error") results.push(msg);
+    });
+  });
+  const port = await listen(wss);
+
+  const handle = runAgent(cfgFor(port));
+  try {
+    await waitFor(() => send !== null, "agent connection");
+
+    send!("{not json at all"); // malformed
+    send!(JSON.stringify({ type: "nonsense", foo: "bar" })); // unknown type
+    send!(
+      JSON.stringify({
+        type: "request",
+        method: "GET",
+        url: `http://127.0.0.1:${tport}/x`,
+      })
+    ); // no jobId -> silently dropped, no error frame
+    send!(
+      JSON.stringify({
+        type: "request",
+        jobId: "ok-1",
+        method: "GET",
+        url: `http://127.0.0.1:${tport}/x`,
+      })
+    );
+
+    await waitFor(() => results.length >= 1, "valid job result");
+    await new Promise((r) => setTimeout(r, 150));
+
+    assert.deepEqual(results.map((r) => r.jobId), ["ok-1"]);
+    assert.equal(results[0].type, "response");
+  } finally {
+    stop(handle);
+    closeRelay(wss);
+    target.close();
+  }
 });

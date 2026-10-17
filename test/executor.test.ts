@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
+import https from "node:https";
 import {
   BodyTooLargeError,
   NonLocalTargetError,
@@ -10,6 +11,7 @@ import {
   clampTimeout,
   executeRequest,
 } from "../src/executor";
+import { selfSignedCert, selfSignedKey } from "./fixtures/selfSigned";
 
 function listen(server: http.Server): Promise<number> {
   return new Promise((resolve) => {
@@ -163,4 +165,84 @@ test("per-job timeoutMs overrides the default", { timeout: 10_000 }, async () =>
   const elapsed = Date.now() - t0;
   assert.ok(elapsed < REQUEST_TIMEOUT_MS, `took ${elapsed}ms`);
   server.close();
+});
+
+test("a timeout is not replayed against another address family", { timeout: 10_000 }, async () => {
+  let connections = 0;
+  const server = http.createServer(() => {
+    connections += 1;
+    /* hang */
+  });
+  const port = await listen(server);
+  await assert.rejects(
+    executeRequest({
+      jobId: "j",
+      method: "POST",
+      url: `http://localhost:${port}/hang`,
+      bodyBase64: Buffer.from("payload").toString("base64"),
+      timeoutMs: MIN_TIMEOUT_MS,
+    }),
+    /timeout/i
+  );
+  assert.equal(connections, 1, "timed-out request must not be re-sent");
+  server.close();
+});
+
+test("self-signed https targets are rejected by default, allowed via insecureTLS", async () => {
+  const server = https.createServer(
+    { key: selfSignedKey, cert: selfSignedCert },
+    (_req, res) => {
+      res.writeHead(200, { "content-type": "text/plain" });
+      res.end("secure-ok");
+    }
+  );
+  const port = await listen(server);
+  try {
+    await assert.rejects(
+      executeRequest({
+        jobId: "j",
+        method: "GET",
+        url: `https://127.0.0.1:${port}/`,
+      }),
+      /self[- ]signed|certificate|unable to verify/i
+    );
+
+    const res = await executeRequest({
+      jobId: "j",
+      method: "GET",
+      url: `https://127.0.0.1:${port}/`,
+      insecureTLS: true,
+    });
+    assert.equal(res.status, 200);
+    assert.equal(Buffer.from(res.bodyBase64, "base64").toString(), "secure-ok");
+  } finally {
+    server.close();
+  }
+});
+
+test("repeated set-cookie headers are newline-joined, not comma-joined", async () => {
+  const server = http.createServer((_req, res) => {
+    res.setHeader("Set-Cookie", [
+      "a=1; Expires=Wed, 21 Oct 2099 07:28:00 GMT",
+      "b=2; Path=/",
+    ]);
+    res.writeHead(200);
+    res.end("ok");
+  });
+  const port = await listen(server);
+  try {
+    const res = await executeRequest({
+      jobId: "j",
+      method: "GET",
+      url: `http://127.0.0.1:${port}/`,
+    });
+    const cookie = res.headers["set-cookie"];
+    assert.ok(cookie, "expected a set-cookie header");
+    assert.deepEqual(cookie.split("\n"), [
+      "a=1; Expires=Wed, 21 Oct 2099 07:28:00 GMT",
+      "b=2; Path=/",
+    ]);
+  } finally {
+    server.close();
+  }
 });
