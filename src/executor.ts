@@ -72,6 +72,22 @@ function candidateTargets(rawUrl: string): string[] {
   return candidates;
 }
 
+// Errors that can only happen before the request reaches the target, so a
+// fallback candidate is safe to try without replaying side effects.
+const CONNECT_PHASE_CODES = new Set([
+  "ECONNREFUSED",
+  "EAI_AGAIN",
+  "ENOTFOUND",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "EADDRNOTAVAIL",
+]);
+
+function isConnectionPhaseError(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === "string" && CONNECT_PHASE_CODES.has(code);
+}
+
 export async function executeRequest(job: JobRequest): Promise<JobResponse> {
   const candidates = candidateTargets(job.url);
   if (candidates.length === 0) {
@@ -87,6 +103,10 @@ export async function executeRequest(job: JobRequest): Promise<JobResponse> {
     } catch (err) {
       lastError = err;
       if (err instanceof BodyTooLargeError) throw err;
+      // Only fall through to the next address-family candidate when the
+      // failure happened before the request was sent; a mid-flight failure
+      // must not replay a non-idempotent request against the other family.
+      if (!isConnectionPhaseError(err)) throw err;
     }
   }
   throw lastError instanceof Error
