@@ -3,7 +3,9 @@ import { AgentConfig, writeConfig } from "../config";
 
 export function normalizeServerUrl(raw: string): string {
   let candidate = raw.trim().replace(/\/+$/, "");
-  if (!/^https?:\/\//i.test(candidate)) {
+  // Only prepend a scheme when the input has none; otherwise a stray scheme
+  // like `ftp://` would be silently rewritten into a bogus https URL.
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(candidate)) {
     candidate = `https://${candidate}`;
   }
   const parsed = new URL(candidate);
