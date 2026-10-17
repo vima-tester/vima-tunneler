@@ -67,7 +67,9 @@ use this agent.
 | `VIMA_MAX_BODY_BYTES` | `26214400` (25 MB) | Response body cap; larger bodies abort mid-download with an error frame. |
 
 Per-job timeouts come from the relay: each request frame may carry
-`timeoutMs`, clamped by the agent to `[1000, 300000]`; default is 30 s.
+`timeoutMs`, clamped by the agent to `[1000, 300000]`; default is 30 s. A
+request frame may also carry `insecureTLS: true` to skip certificate
+verification for `https:` targets (see the security model below).
 
 ## Security model
 
@@ -82,6 +84,10 @@ Per-job timeouts come from the relay: each request frame may carry
   only the current user keeps access (best-effort via `icacls`).
 - Redirects are **not** followed — a local server cannot bounce the agent
   onto non-local targets.
+- **TLS is verified by default.** Local `https://` servers with self-signed or
+  otherwise untrusted certificates are rejected unless the relay sets
+  `insecureTLS: true` on that specific request. Verification is never disabled
+  globally, and the flag does not affect the relay connection.
 
 ## Reliability
 

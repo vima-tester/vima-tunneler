@@ -1,3 +1,4 @@
+import https from "node:https";
 import axios from "axios";
 
 export interface JobRequest {
@@ -7,6 +8,8 @@ export interface JobRequest {
   headers?: Record<string, string>;
   bodyBase64?: string;
   timeoutMs?: number;
+  /** Disable TLS certificate verification for this job (https targets only). */
+  insecureTLS?: boolean;
 }
 
 export const MIN_TIMEOUT_MS = 1_000;
@@ -91,6 +94,16 @@ export async function executeRequest(job: JobRequest): Promise<JobResponse> {
     : new Error("request failed unexpectedly");
 }
 
+// Lazily created so plain-http usage never constructs a TLS agent.
+let insecureAgent: https.Agent | null = null;
+
+function insecureHttpsAgent(): https.Agent {
+  if (insecureAgent === null) {
+    insecureAgent = new https.Agent({ rejectUnauthorized: false });
+  }
+  return insecureAgent;
+}
+
 async function runOnce(
   job: JobRequest,
   url: string
@@ -104,6 +117,7 @@ async function runOnce(
     timeout: clampTimeout(job.timeoutMs) ?? REQUEST_TIMEOUT_MS,
     maxRedirects: 0,
     validateStatus: () => true,
+    httpsAgent: job.insecureTLS ? insecureHttpsAgent() : undefined,
   });
 
   const limit = maxBodyBytes();

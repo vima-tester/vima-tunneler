@@ -72,6 +72,7 @@ agent; the relay should ignore them too.
 | `headers` | object of string->string | no | Passed through to the local request verbatim. Non-object values are ignored. |
 | `bodyBase64` | string | no | Base64-decoded into the raw request body. |
 | `timeoutMs` | number | no | Clamped to `[1000, 300000]`; anything non-numeric falls back to the 30 s default. |
+| `insecureTLS` | boolean | no | When exactly `true`, TLS certificate verification is disabled for this job. Only affects `https:` targets; ignored otherwise. |
 
 Exactly one of `response` / `error` comes back per accepted `jobId` -- though
 delivery is at-least-once (section 3), so the same frame may arrive multiple
@@ -247,6 +248,14 @@ the socket and waits for the close to complete -- all within a 10 s budget.
 A second signal force-exits immediately. Frames flushed this way are normal
 `seq`-tagged results and are subject to the same dedupe requirement as any
 other delivery.
+
+### 4.9 TLS verification is on by default
+
+`https:` targets are verified against the system trust store, so a local server
+with a self-signed or otherwise untrusted certificate fails with an error frame.
+A job may opt out per-request by setting `insecureTLS: true` (section 2); this
+disables certificate verification for that job only and has no effect on `http:`
+targets or on the relay connection itself.
 
 ## 5. Known limitations (v1)
 

@@ -32,6 +32,7 @@ interface RequestMessage {
   headers?: unknown;
   bodyBase64?: unknown;
   timeoutMs?: unknown;
+  insecureTLS?: unknown;
 }
 
 export interface RunAgentHandle {
@@ -145,6 +146,7 @@ export function runAgent(
       bodyBase64:
         typeof msg.bodyBase64 === "string" ? msg.bodyBase64 : undefined,
       timeoutMs: clampTimeout(msg.timeoutMs),
+      insecureTLS: msg.insecureTLS === true,
     };
     activeJobs += 1;
     try {
