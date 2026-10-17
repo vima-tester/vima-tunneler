@@ -99,7 +99,7 @@ Sent when the local HTTP call completed, **regardless of status code** (a
 | `type` | `"response"` | |
 | `jobId` | string | Echoes the request's `jobId`. |
 | `status` | number | The local server's HTTP status, as-is. |
-| `headers` | object of string->string | Response headers with **lowercased** names; repeated headers joined with `", "`. |
+| `headers` | object of string->string | Response headers with **lowercased** names; repeated headers joined with `", "`, except `set-cookie`, whose repeated values are joined with `"\n"` (a cookie value may itself contain a comma). |
 | `bodyBase64` | string | Full response body, base64-encoded. |
 | `seq` | number | Monotonic delivery sequence (section 3). |
 

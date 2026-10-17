@@ -160,7 +160,10 @@ async function runOnce(
     if (typeof value === "string") {
       headers[key.toLowerCase()] = value;
     } else if (Array.isArray(value)) {
-      headers[key.toLowerCase()] = value.join(", ");
+      const name = key.toLowerCase();
+      // `set-cookie` cannot be comma-joined (values may contain commas, e.g.
+      // an Expires date), so separate repeated values with a newline instead.
+      headers[name] = value.join(name === "set-cookie" ? "\n" : ", ");
     }
   }
 
