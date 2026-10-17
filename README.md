@@ -55,7 +55,7 @@ use this agent.
 | Command | Purpose |
 |---|---|
 | `pair --code <code> [--server <url>]` | Exchange a pairing code for a long-lived token, store it locally, print the agent ID. `--server` is effectively required — no default relay URL is baked in. |
-| `start` | Connect to the relay and execute jobs until stopped. Reconnects automatically with jittered exponential backoff. SIGINT/SIGTERM drain in-flight jobs and flush pending results (~10s max; press Ctrl+C again to force exit). |
+| `start` | Connect to the relay and execute jobs until stopped. Reconnects automatically with jittered exponential backoff. SIGINT/SIGTERM drain in-flight jobs and flush pending results (~10s max; press Ctrl+C again to force exit). If the relay rejects the token at the upgrade (HTTP 401/403), it logs the reason and exits non-zero instead of retrying forever. |
 | `status` | Print pairing state without connecting. |
 | `logout` | Delete the stored config. |
 
@@ -108,6 +108,10 @@ See [PROTOCOL.md](PROTOCOL.md) for the full wire-protocol contract.
   not redelivered.
 - One agent per machine; no configurable host allowlist beyond loopback;
   no auto-start on login.
+- No explicit inbound request-body cap; large `request` frames are bounded
+  only by the WebSocket library's default 100 MiB frame limit.
+- A non-auth upgrade failure (e.g. a 5xx or a proxy error) is still retried
+  indefinitely; only 401/403 are treated as terminal.
 
 ## License
 

@@ -14,6 +14,12 @@ export interface AgentRuntimeOptions {
   backoffBaseMs?: number;
   backoffCapMs?: number;
   inflightLimit?: number;
+  /**
+   * Called when the agent gives up for good. Currently only fires when the
+   * relay rejects the token at the WebSocket upgrade (HTTP 401/403), which is
+   * not a transient condition and therefore is not retried.
+   */
+  onFatalError?: (err: Error) => void;
 }
 
 const DEFAULT_INFLIGHT_LIMIT = 8;
@@ -109,6 +115,17 @@ export function runAgent(
       clearInterval(heartbeat);
       heartbeat = null;
     }
+  };
+
+  const failPermanently = (err: Error) => {
+    stopped = true;
+    if (reconnectTimer !== null) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    stopHeartbeat();
+    console.error(err.message);
+    opts.onFatalError?.(err);
   };
 
   const sendRaw = (payload: Record<string, unknown>) => {
@@ -241,6 +258,17 @@ export function runAgent(
 
     socket.on("close", scheduleReconnect);
     socket.on("error", (err) => {
+      const status = authRejectionStatus(err.message);
+      if (status !== null) {
+        socket?.close();
+        failPermanently(
+          new Error(
+            `relay rejected the agent token (HTTP ${status}); not retrying. ` +
+              `Run \`vima-tunneler pair --code <code> --server <url>\` to re-authenticate.`,
+          ),
+        );
+        return;
+      }
       console.error(`websocket error: ${err.message}`);
     });
   };
@@ -324,4 +352,12 @@ export function runAgent(
       }
     },
   };
+}
+
+/** HTTP status from a failed WebSocket upgrade, when the relay refused auth. */
+function authRejectionStatus(message: string): number | null {
+  const match = /Unexpected server response: (\d{3})/.exec(message);
+  if (!match) return null;
+  const status = Number(match[1]);
+  return status === 401 || status === 403 ? status : null;
 }

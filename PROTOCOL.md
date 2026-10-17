@@ -41,7 +41,11 @@ token is sent only in the `Authorization` header -- never as a query
 parameter. The relay should authenticate on the upgrade request itself.
 
 The agent maintains exactly **one** connection to one relay at a time and
-reconnects indefinitely until stopped.
+reconnects indefinitely until stopped, with one exception: if the upgrade is
+refused with **HTTP 401 or 403**, the agent treats the token as invalid, logs a
+message telling the user to re-pair, and stops -- it does not retry. Other
+upgrade failures (5xx, proxy errors, network errors) are retried with the
+backoff from 4.6.
 
 ## 2. Message shapes
 

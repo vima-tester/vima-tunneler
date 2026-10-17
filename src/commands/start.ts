@@ -11,7 +11,13 @@ export function start(): void {
     return;
   }
   console.log(`Starting agent ${config.agentId}...`);
-  const handle = runAgent(config);
+  const handle = runAgent(config, {
+    // The agent logs the reason (e.g. a rejected token); surface it as a
+    // non-zero exit so scripts and users notice instead of looping forever.
+    onFatalError: () => {
+      process.exitCode = 1;
+    },
+  });
   let closing = false;
   const shutdown = async (signal: string) => {
     if (closing) {
