@@ -82,9 +82,13 @@ class Outbox {
   dropped(): number {
     return this.droppedCount;
   }
+
+  clearDropped(): void {
+    this.droppedCount = 0;
+  }
 }
 
-function toWebSocketUrl(serverUrl: string): string {
+export function toWebSocketUrl(serverUrl: string): string {
   if (/^https:\/\//i.test(serverUrl)) {
     return "wss://" + serverUrl.slice("https://".length);
   }
@@ -147,6 +151,7 @@ export function runAgent(
       console.warn(
         `outbox overflowed earlier; ${outbox.dropped()} oldest result(s) were lost`,
       );
+      outbox.clearDropped();
     }
   };
 

@@ -40,10 +40,6 @@ function maxBodyBytes(): number {
   return DEFAULT_MAX_BODY_BYTES;
 }
 
-function isLocalTarget(rawUrl: string): boolean {
-  return candidateTargets(rawUrl).length > 0;
-}
-
 function candidateTargets(rawUrl: string): string[] {
   let parsed: URL;
   try {
