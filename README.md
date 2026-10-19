@@ -17,6 +17,9 @@ This package is **the local agent only**. The relay server and web UI are
 separate projects that speak the wire protocol described in
 [PROTOCOL.md](https://github.com/vima-tester/vima-tunneler/blob/main/PROTOCOL.md).
 
+`vima-tunneler` is published on npm:
+**[npmjs.com/package/vima-tunneler](https://www.npmjs.com/package/vima-tunneler)**.
+
 ```
 Browser (web UI)
    |  "run this request" over HTTPS/WS
@@ -33,7 +36,8 @@ localhost:PORT (your local API)
 
 ## Install
 
-Requires **Node.js 20 or newer**.
+Requires **Node.js 20 or newer**. The package is available on npm as
+[`vima-tunneler`](https://www.npmjs.com/package/vima-tunneler).
 
 ```bash
 npm install -g vima-tunneler
@@ -44,6 +48,12 @@ Or run it without a global install:
 ```bash
 npx vima-tunneler pair --code <code> --server https://relay.example.com
 npx vima-tunneler start
+```
+
+To pin a specific release:
+
+```bash
+npm install -g vima-tunneler@<version>
 ```
 
 ## Quick start
@@ -147,6 +157,12 @@ for the full wire-protocol contract.
   only by the WebSocket library's default 100 MiB frame limit.
 - A non-auth upgrade failure (e.g. a 5xx or a proxy error) is still retried
   indefinitely; only 401/403 are treated as terminal.
+
+## Links
+
+- **npm package:** https://www.npmjs.com/package/vima-tunneler
+- **Source / issues:** https://github.com/vima-tester/vima-tunneler
+- **Wire protocol:** [PROTOCOL.md](https://github.com/vima-tester/vima-tunneler/blob/main/PROTOCOL.md)
 
 ## Development
 
